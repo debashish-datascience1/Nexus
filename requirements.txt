@@ -1,0 +1,11 @@
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-google-genai>=2.0.0
+langchain-core>=0.3.0
+streamlit>=1.39.0
+python-dotenv>=1.0.0
+PyGitHub>=2.4.0
+newsapi-python>=0.2.7
+feedparser>=6.0.11
+linkedin-api>=2.1.0
+typing_extensions>=4.0.0
