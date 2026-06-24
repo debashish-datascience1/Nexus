@@ -1,60 +1,72 @@
+import re
+import urllib.parse
 import feedparser
 from config import NEWSAPI_KEY
 
-RSS_FEEDS = [
-    "https://hnrss.org/frontpage",
-    "https://feeds.feedburner.com/TechCrunch",
-    "https://www.theverge.com/rss/index.xml",
-    "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
-]
+
+def _clean_html(text: str) -> str:
+    return re.sub(r"<[^>]+>", "", text or "").strip()
 
 
-def fetch_news(query: str) -> list[dict]:
-    """Try NewsAPI first; returns [] if key is missing or quota is hit."""
+def fetch_news(query: str, page_size: int = 10) -> list[dict]:
+    """NewsAPI — richer descriptions and images when API key is present."""
     if not NEWSAPI_KEY:
         return []
     try:
         from newsapi import NewsApiClient
         client = NewsApiClient(api_key=NEWSAPI_KEY)
         resp = client.get_everything(
-            q=query, language="en", sort_by="publishedAt", page_size=5
+            q=query, language="en", sort_by="publishedAt", page_size=page_size
         )
-        return [
-            {
+        results = []
+        for a in resp.get("articles", []):
+            if not a.get("title"):
+                continue
+            desc = a.get("description") or a.get("content") or ""
+            results.append({
                 "title": a["title"],
                 "source": a["source"]["name"],
                 "published": (a["publishedAt"] or "")[:10],
                 "url": a["url"],
-                "description": a.get("description", ""),
-            }
-            for a in resp.get("articles", [])
-            if a.get("title")
-        ]
+                "description": desc[:500],
+                "image_url": a.get("urlToImage") or "",
+            })
+        return results
     except Exception:
         return []
 
 
-def fetch_rss(query: str) -> list[dict]:
-    """Unlimited fallback: search RSS feeds by keyword."""
-    results: list[dict] = []
-    keywords = query.lower().split()
+def fetch_rss(query: str, num: int = 10) -> list[dict]:
+    """Google News RSS — query-based, covers any topic worldwide, no key needed."""
+    encoded = urllib.parse.quote_plus(query)
+    url = f"https://news.google.com/rss/search?q={encoded}&hl=en&gl=US&ceid=US:en"
+    try:
+        feed = feedparser.parse(url)
+        results = []
+        for entry in feed.entries[:num]:
+            title = entry.get("title", "")
 
-    for feed_url in RSS_FEEDS:
-        try:
-            feed = feedparser.parse(feed_url)
-            for entry in feed.entries[:30]:
-                title = entry.get("title", "")
-                if not keywords or any(k in title.lower() for k in keywords):
-                    results.append(
-                        {
-                            "title": title,
-                            "source": feed.feed.get("title", feed_url),
-                            "published": (entry.get("published", "") or "")[:10],
-                            "url": entry.get("link", ""),
-                            "description": entry.get("summary", "")[:200],
-                        }
-                    )
-        except Exception:
-            continue
+            # Google News embeds source in the title: "Headline - Source Name"
+            source = ""
+            if hasattr(entry, "source") and entry.source:
+                source = entry.source.get("title", "")
+            if not source and " - " in title:
+                parts = title.rsplit(" - ", 1)
+                title = parts[0].strip()
+                source = parts[1].strip()
 
-    return results[:5]
+            description = _clean_html(entry.get("summary", ""))
+            if description == title:
+                description = ""
+
+            results.append({
+                "title": title,
+                "source": source or "News",
+                "published": (entry.get("published", "") or "")[:16],
+                "url": entry.get("link", ""),
+                "description": description[:600],
+                "image_url": "",
+            })
+        return results
+    except Exception:
+        return []

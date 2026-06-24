@@ -47,6 +47,9 @@ def _keyword_route(query: str, agent_registry: dict) -> str:
     return "none"
 
 
+PASSTHROUGH_AGENTS = {"news"}
+
+
 def build_graph(agent_registry: dict):
     llm = ChatGoogleGenerativeAI(
         model=MODEL_NAME,
@@ -111,6 +114,9 @@ Rules:
         query = state["messages"][-1].content
 
         if agent_name == "none":
+            return {"messages": [AIMessage(content=raw_data)]}
+
+        if agent_name in PASSTHROUGH_AGENTS:
             return {"messages": [AIMessage(content=raw_data)]}
 
         synth_prompt = (
