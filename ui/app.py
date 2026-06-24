@@ -1,10 +1,13 @@
 import sys
 import os
+import re
 import json
 import html as _html
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from datetime import datetime
 import streamlit as st
+import streamlit.components.v1 as components
 from langchain_core.messages import HumanMessage, AIMessage
 
 from orchestrator.graph import build_graph
@@ -16,6 +19,34 @@ st.set_page_config(
     page_icon="🤖",
     layout="wide",
 )
+
+# ── Text-to-speech (browser Web Speech API — completely free) ─────────────────
+def _strip_for_tts(text: str) -> str:
+    text = re.sub(r"\*+", "", text)
+    text = re.sub(r"#+\s*", "", text)
+    text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
+    text = re.sub(r"`[^`]*`", "", text)
+    text = re.sub(r"\n+", ". ", text)
+    return text.strip()
+
+
+def _speak(text: str) -> None:
+    """Inject a zero-height iframe that speaks text via the browser's speech API."""
+    clean = _strip_for_tts(text)
+    if not clean:
+        return
+    payload = json.dumps(clean)   # handles all escaping
+    components.html(f"""
+    <script>
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance({payload});
+      u.rate  = 0.93;
+      u.pitch = 1.05;
+      u.volume = 1.0;
+      window.speechSynthesis.speak(u);
+    </script>
+    """, height=0, scrolling=False)
+
 
 # ── Card colour palette (cycles per article) ──────────────────────────────────
 _GRADIENTS = [
@@ -128,22 +159,48 @@ with st.sidebar:
     for name, agent in registry.items():
         st.markdown(f"**{name}**  \n{agent.description}")
     st.divider()
+    tts_on = st.toggle("🔊 Read responses aloud", value=False, key="tts_on")
+    st.divider()
     if st.button("Clear conversation history"):
         clear_history()
         st.session_state.messages = []
         st.rerun()
 
 # ── Session history ────────────────────────────────────────────────────────────
+def _greeting() -> str:
+    hour = datetime.now().hour
+    if hour < 12:
+        period = "Morning"
+    elif hour < 17:
+        period = "Afternoon"
+    else:
+        period = "Evening"
+    return (
+        f"Good {period}, Boss! 👋\n\n"
+        "What would you like me to do today? I can fetch **news**, check your **GitHub**, "
+        "look up **LinkedIn** profiles, or just have a conversation."
+    )
+
 if "messages" not in st.session_state:
     history = load_recent(20)
     st.session_state.messages = [
         {"role": m["role"], "content": m["content"], "agent": m.get("agent") or ""}
         for m in history
     ]
+    if not st.session_state.messages:
+        greeting = _greeting()
+        st.session_state.messages.append(
+            {"role": "assistant", "content": greeting, "agent": ""}
+        )
+        st.session_state["_speak_greeting"] = greeting
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         _render_message(msg["content"], msg.get("agent", ""))
+
+# Speak greeting once on fresh session (after it's rendered above)
+if "_speak_greeting" in st.session_state:
+    _speak(st.session_state.pop("_speak_greeting"))
 
 # ── Chat input ─────────────────────────────────────────────────────────────────
 if prompt := st.chat_input("Ask anything — news, GitHub, LinkedIn..."):
@@ -172,6 +229,9 @@ if prompt := st.chat_input("Ask anything — news, GitHub, LinkedIn..."):
         _render_message(reply, agent_used)
         if agent_used and agent_used != "none":
             st.caption(f"↳ {agent_used} agent")
+
+        if tts_on and agent_used != "news":
+            _speak(reply)
 
     st.session_state.messages.append({"role": "assistant", "content": reply, "agent": agent_used})
     save_message("assistant", reply, agent=agent_used)
