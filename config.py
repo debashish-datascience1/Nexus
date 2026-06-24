@@ -10,5 +10,5 @@ NEWSAPI_KEY      = os.getenv("NEWSAPI_KEY", "")
 LINKEDIN_EMAIL   = os.getenv("LINKEDIN_EMAIL", "")
 LINKEDIN_PASSWORD = os.getenv("LINKEDIN_PASSWORD", "")
 
-MODEL_NAME = "gemini-2.0-flash"
+MODEL_NAME = "gemini-2.0-flash-lite"
 DB_PATH    = Path(__file__).parent / "memory" / "agent_memory.db"
