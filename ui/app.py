@@ -22,11 +22,34 @@ st.set_page_config(
 
 # ── Text-to-speech (browser Web Speech API — completely free) ─────────────────
 def _strip_for_tts(text: str) -> str:
-    text = re.sub(r"\*+", "", text)
-    text = re.sub(r"#+\s*", "", text)
+    # Markdown links → keep link text only
     text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
+    # Remove fenced code blocks entirely
+    text = re.sub(r"```[\s\S]*?```", "", text)
+    # Remove inline code
     text = re.sub(r"`[^`]*`", "", text)
+    # Remove bare URLs
+    text = re.sub(r"https?://\S+", "", text)
+    # Bold / italic with * or _ → keep inner text
+    text = re.sub(r"\*{1,3}([^*\n]+)\*{1,3}", r"\1", text)
+    text = re.sub(r"_{1,3}([^_\n]+)_{1,3}", r"\1", text)
+    # Remaining lone underscores (e.g. variable_names) → space
+    text = re.sub(r"_", " ", text)
+    # Heading markers
+    text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
+    # Bullet and numbered list markers
+    text = re.sub(r"^\s*[-*+]\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*\d+\.\s+", "", text, flags=re.MULTILINE)
+    # Horizontal rules
+    text = re.sub(r"^[-*_]{3,}\s*$", "", text, flags=re.MULTILINE)
+    # Emojis and non-ASCII symbols → space
+    text = re.sub(r"[^\x00-\x7F]+", " ", text)
+    # Newlines → brief pause
     text = re.sub(r"\n+", ". ", text)
+    # Collapse repeated sentence-end punctuation like ". . ." or "..."
+    text = re.sub(r"(\.\s*){2,}", ". ", text)
+    # Collapse extra whitespace
+    text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 
@@ -159,7 +182,7 @@ with st.sidebar:
     for name, agent in registry.items():
         st.markdown(f"**{name}**  \n{agent.description}")
     st.divider()
-    tts_on = st.toggle("🔊 Read responses aloud", value=False, key="tts_on")
+    tts_on = st.toggle("🔊 Read responses aloud", value=True, key="tts_on")
     st.divider()
     if st.button("Clear conversation history"):
         clear_history()
@@ -187,12 +210,14 @@ if "messages" not in st.session_state:
         {"role": m["role"], "content": m["content"], "agent": m.get("agent") or ""}
         for m in history
     ]
+    greeting = _greeting()
     if not st.session_state.messages:
-        greeting = _greeting()
+        # Fresh session — show greeting in chat too
         st.session_state.messages.append(
             {"role": "assistant", "content": greeting, "agent": ""}
         )
-        st.session_state["_speak_greeting"] = greeting
+    # Always speak the greeting so the laptop "wakes up" with a voice hello
+    st.session_state["_speak_greeting"] = greeting
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
